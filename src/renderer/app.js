@@ -309,17 +309,59 @@ $('#btn-upd-dl').addEventListener('click', async () => {
   if (!pendingUpdate || !pendingUpdate.asset) return;
   const btn = $('#btn-upd-dl');
   btn.disabled = true;
+  btn.textContent = '下载中…';
+  $('#upd-progress').classList.remove('hidden');
+  $('#upd-bar').style.width = '0%';
+  $('#upd-pct').textContent = '0%';
+  $('#upd-speed').textContent = '';
   $('#upd-hint').textContent = '开始下载安装包…';
   try {
     const r = await api.downloadUpdate({ asset: pendingUpdate.asset });
+    $('#upd-bar').style.width = '100%';
+    $('#upd-pct').textContent = '100%';
+    $('#upd-speed').textContent = fmtSize(r.size);
     $('#upd-hint').textContent = `已下载 ${fmtSize(r.size)}，正在打开安装程序…`;
+    btn.textContent = '重新下载';
     await api.runInstaller(r.path);
   } catch (e) {
     $('#upd-hint').textContent = String(e.message || e).replace(/^Error:\s*/, '');
+    btn.textContent = '继续下载';
   } finally {
     btn.disabled = false;
   }
 });
+
+// 更新下载进度（独立于视频下载的 app:progress，避免两个进度条串台）
+function renderUpdateProgress(p) {
+  if (!p) return;
+  const pct = p.total ? Math.round(p.percent || 0) : 0;
+  $('#upd-bar').style.width = `${pct}%`;
+  $('#upd-pct').textContent = p.total
+    ? `${pct}% · ${fmtSize(p.received)} / ${fmtSize(p.total)}`
+    : fmtSize(p.received);
+  $('#upd-speed').textContent = p.speed ? fmtSpeed(p.speed) : '';
+}
+
+if (api.onUpdateBegin) {
+  api.onUpdateBegin((info) => {
+    $('#upd-progress').classList.remove('hidden');
+    $('#upd-bar').style.width = '0%';
+    $('#upd-speed').textContent = '连接中…';
+    if (info && info.index > 0) $('#upd-hint').textContent = '换一个下载源重试…（已下载的部分会接着续）';
+  });
+}
+if (api.onUpdateProgress) api.onUpdateProgress(renderUpdateProgress);
+if (api.onUpdateDone) {
+  api.onUpdateDone(() => {
+    $('#upd-bar').style.width = '100%';
+    $('#upd-pct').textContent = '100%';
+  });
+}
+if (api.onUpdateError) {
+  api.onUpdateError(() => {
+    $('#upd-speed').textContent = '连接中断';
+  });
+}
 
 async function pasteFromClipboard(silent = false) {
   try {

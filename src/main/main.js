@@ -139,15 +139,44 @@ if (!app.requestSingleInstanceLock()) {
       const dir = path.join(app.getPath('temp'), 'douyin-dl-update');
       const dest = path.join(dir, payload.asset.name || 'setup.msi');
       const s = store.load();
-      const primary = updater.mirrorUrl(payload.asset.url, s.mirrorPrefix);
-      const fallbacks = [primary, payload.asset.url];
+      const direct = payload.asset.url;
+      const mirrored = updater.mirrorUrl(direct, s.mirrorPrefix);
+      // 用户显式设了镜像前缀就镜像优先；否则直连优先（国内实测直连更快），另一条作兜底
+      const urls = s.mirrorPrefix ? [mirrored, direct] : [direct, mirrored];
       let lastErr = null;
-      for (const url of fallbacks) {
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i];
+        const ac = new AbortController();
+        let slowSince = 0;
+        let aborted = false;
         try {
-          const r = await updater.downloadTo(url, dest, (p) => send('app:progress', p));
+          send('update:begin', { url, index: i, name: payload.asset.name, size: payload.asset.size || 0 });
+          const r = await updater.downloadTo(
+            url,
+            dest,
+            (p) => {
+              send('update:progress', p);
+              // 连续 25 秒低于 60 KB/s 且还没快下完，就换下一个源（.part 会续传）
+              const slow = p.speed && p.speed < 60 * 1024 && (!p.total || p.percent < 95);
+              if (slow) {
+                if (!slowSince) slowSince = Date.now();
+                else if (Date.now() - slowSince > 25000 && !aborted) {
+                  aborted = true;
+                  logLine('update slow, switching source', Math.round(p.speed / 1024) + 'KB/s');
+                  ac.abort();
+                }
+              } else {
+                slowSince = 0;
+              }
+            },
+            0,
+            { signal: ac.signal, timeoutMs: i === 0 ? 12000 : 60000 }
+          );
+          send('update:done', r);
           return { ...r, url };
         } catch (e) {
           lastErr = e;
+          send('update:error', { message: String((e && e.message) || e), aborted });
           logLine('update download failed', url, e && e.message);
         }
       }

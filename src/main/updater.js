@@ -104,46 +104,96 @@ async function checkUpdate(currentVersion, opts = {}) {
     publishedAt: rel.published_at || '',
     htmlUrl: rel.html_url || '',
     asset: pick ? { name: pick.name, size: pick.size, url: pick.browser_download_url } : null,
-    mirrorUrl: msi ? mirrorUrl(msi.browser_download_url, opts.mirrorPrefix) : '',
+    mirrorUrl: pick ? mirrorUrl(pick.browser_download_url, opts.mirrorPrefix) : '',
   };
 }
 
-function downloadTo(url, dest, onProgress) {
+function downloadTo(url, dest, onProgress, redirects = 0, opts = {}) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'user-agent': 'douyin-downloader' }, timeout: 30000 }, (res) => {
+    if (redirects > 5) {
+      reject(new Error('重定向次数过多'));
+      return;
+    }
+    const part = `${dest}.part`;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    let have = 0;
+    try {
+      if (fs.existsSync(part)) have = fs.statSync(part).size;
+    } catch (_) {
+      have = 0;
+    }
+
+    const headers = { 'user-agent': 'douyin-downloader' };
+    // 有残留就续传；服务器不认 Range 时会回 200，下面按 200 处理
+    if (have > 0) headers.Range = `bytes=${have}-`;
+
+    const req = https.get(url, { headers, timeout: opts.timeoutMs || 60000 }, (res) => {
+      if (opts.signal) opts.signal.addEventListener('abort', () => res.destroy(), { once: true });
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
-        resolve(downloadTo(res.headers.location, dest, onProgress));
+        resolve(downloadTo(res.headers.location, dest, onProgress, redirects + 1, opts));
         return;
       }
-      if (res.statusCode !== 200) {
+      if (res.statusCode === 416 && have > 0) {
+        res.resume();
+        fs.renameSync(part, dest);
+        resolve({ path: dest, size: have, resumed: true });
+        return;
+      }
+      if (res.statusCode !== 200 && res.statusCode !== 206) {
         res.resume();
         reject(new Error(`下载失败，HTTP ${res.statusCode}`));
         return;
       }
-      const total = Number(res.headers['content-length'] || 0);
-      let received = 0;
+
+      // 206 时 content-length 是"剩余字节"，200 时是全长
+      const ranged = res.statusCode === 206;
+      if (!ranged && have > 0) have = 0;
+      const bodyLen = Number(res.headers['content-length'] || 0);
+      const total = bodyLen ? bodyLen + have : 0;
+
+      let received = have;
       let last = Date.now();
-      let lastBytes = 0;
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      const out = fs.createWriteStream(dest);
-      res.on('data', (chunk) => {
-        received += chunk.length;
+      let lastBytes = received;
+      const startedAt = last;
+
+      const out = fs.createWriteStream(part, { flags: have > 0 ? 'a' : 'w' });
+      const emit = (force) => {
         const now = Date.now();
-        if (onProgress && now - last > 150) {
-          const speed = ((received - lastBytes) / (now - last)) * 1000;
-          onProgress({ received, total, percent: total ? (received / total) * 100 : 0, speed });
+        if (onProgress && (force || now - last > 200)) {
+          const speed = now > startedAt ? ((received - lastBytes) / (now - last || 1)) * 1000 : 0;
+          onProgress({
+            received,
+            total,
+            percent: total ? Math.min(100, (received / total) * 100) : 0,
+            speed,
+          });
           last = now;
           lastBytes = received;
         }
+      };
+
+      res.on('data', (chunk) => {
+        received += chunk.length;
+        emit(false);
       });
       res.pipe(out);
-      out.on('finish', () => {
-        out.close(() => resolve({ path: dest, size: received }));
-      });
       out.on('error', reject);
+      out.on('finish', () => {
+        out.close(() => {
+          emit(true);
+          try {
+            fs.renameSync(part, dest);
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          resolve({ path: dest, size: received, resumed: have > 0 });
+        });
+      });
+      res.on('error', reject);
     });
-    req.on('timeout', () => req.destroy(new Error('下载超时')));
+    req.on('timeout', () => req.destroy(new Error('下载超时，可重试继续下载')));
     req.on('error', reject);
   });
 }

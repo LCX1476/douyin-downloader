@@ -16,4 +16,8 @@ contextBridge.exposeInMainWorld('api', {
   setWindowTheme: (mode) => ipcRenderer.send('app:theme', mode),
   onStatus: (cb) => ipcRenderer.on('app:status', (_e, s) => cb(s)),
   onProgress: (cb) => ipcRenderer.on('app:progress', (_e, p) => cb(p)),
+  onUpdateBegin: (cb) => ipcRenderer.on('update:begin', (_e, p) => cb(p)),
+  onUpdateProgress: (cb) => ipcRenderer.on('update:progress', (_e, p) => cb(p)),
+  onUpdateDone: (cb) => ipcRenderer.on('update:done', (_e, p) => cb(p)),
+  onUpdateError: (cb) => ipcRenderer.on('update:error', (_e, p) => cb(p)),
 });
