@@ -4,3 +4,4 @@ dist/
 _main.log
 *.log
 .DS_Store
+_*.txt
