@@ -5,3 +5,4 @@ _main.log
 *.log
 .DS_Store
 _*.txt
+_*.md
