@@ -9,6 +9,7 @@ const DEFAULTS = () => ({
   openFolderAfterDownload: true,
   readClipboardOnStart: true,
   themeColor: 'default', // 'default' 或 #rrggbb
+  themeMode: 'dark', // 'dark' | 'light' | 'system'
   fontFamily: 'default', // 'default' | 'mono'
   mirrorPrefix: '', // 空 = 使用内置 gh-proxy
 });

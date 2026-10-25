@@ -85,7 +85,13 @@ async function checkUpdate(currentVersion, opts = {}) {
   }
   const tag = rel.tag_name || rel.name || '';
   const assets = Array.isArray(rel.assets) ? rel.assets : [];
-  const msi = assets.find((a) => /\.msi$/i.test(a.name)) || assets[0] || null;
+  // 优先 MSI，其次 NSIS 安装包（.exe），最后任意可执行资产
+  const pick =
+    assets.find((a) => /\.msi$/i.test(a.name)) ||
+    assets.find((a) => /\.exe$/i.test(a.name) && /setup|install/i.test(a.name)) ||
+    assets.find((a) => /\.exe$/i.test(a.name)) ||
+    assets[0] ||
+    null;
   const hasUpdate = isNewer(tag, currentVersion);
   return {
     ok: true,
@@ -97,7 +103,7 @@ async function checkUpdate(currentVersion, opts = {}) {
     notes: (rel.body || '').slice(0, 4000),
     publishedAt: rel.published_at || '',
     htmlUrl: rel.html_url || '',
-    asset: msi ? { name: msi.name, size: msi.size, url: msi.browser_download_url } : null,
+    asset: pick ? { name: pick.name, size: pick.size, url: pick.browser_download_url } : null,
     mirrorUrl: msi ? mirrorUrl(msi.browser_download_url, opts.mirrorPrefix) : '',
   };
 }

@@ -112,6 +112,22 @@ if (!app.requestSingleInstanceLock()) {
 
     ipcMain.handle('app:version', () => app.getVersion());
 
+    // 渲染层切换深色/浅色时，把系统标题栏按钮与窗口底色一起换掉
+    ipcMain.on('app:theme', (_e, mode) => {
+      const light = mode === 'light';
+      if (!win || win.isDestroyed()) return;
+      try {
+        win.setBackgroundColor(light ? '#f7faf7' : '#000000');
+        if (typeof win.setTitleBarOverlay === 'function') {
+          win.setTitleBarOverlay({
+            color: light ? '#f7faf7' : '#000000',
+            symbolColor: light ? '#10160f' : '#e8e6ef',
+            height: 40,
+          });
+        }
+      } catch (_) { /* 旧版本没有该方法，忽略 */ }
+    });
+
     ipcMain.handle('updates:check', async () => {
       const s = store.load();
       const r = await updater.checkUpdate(app.getVersion(), { mirrorPrefix: s.mirrorPrefix });

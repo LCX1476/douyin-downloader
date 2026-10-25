@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
   checkUpdate: () => ipcRenderer.invoke('updates:check'),
   downloadUpdate: (payload) => ipcRenderer.invoke('updates:download', payload),
   runInstaller: (p) => ipcRenderer.invoke('shell:openDir', p),
+  setWindowTheme: (mode) => ipcRenderer.send('app:theme', mode),
   onStatus: (cb) => ipcRenderer.on('app:status', (_e, s) => cb(s)),
   onProgress: (cb) => ipcRenderer.on('app:progress', (_e, p) => cb(p)),
 });

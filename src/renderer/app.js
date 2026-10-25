@@ -13,6 +13,7 @@ let settings = {
   openFolderAfterDownload: true,
   readClipboardOnStart: true,
   themeColor: 'default',
+  themeMode: 'dark',
   fontFamily: 'default',
   mirrorPrefix: '',
 };
@@ -89,6 +90,7 @@ function applySettings() {
   $('#set-openfolder').checked = settings.openFolderAfterDownload !== false;
   $('#set-clipboard').checked = settings.readClipboardOnStart !== false;
   $('#set-mirror').value = settings.mirrorPrefix || '';
+  applyMode(settings.themeMode);
   applyTheme(settings.themeColor);
   applyFont(settings.fontFamily);
   renderSwatches();
@@ -100,6 +102,23 @@ function applySettings() {
 /* ---------------- 外观 ---------------- */
 const PRESETS = ['#7ddc8e', '#7fb8ff', '#c39bff', '#ffb366', '#ff9ec4', '#7fe3dd'];
 const DEFAULT_PRIMARY = '#7ddc8e';
+const MEDIA_LIGHT = window.matchMedia('(prefers-color-scheme: light)');
+
+function resolveMode(mode) {
+  if (mode === 'light' || mode === 'dark') return mode;
+  return MEDIA_LIGHT.matches ? 'light' : 'dark';
+}
+
+function applyMode(mode) {
+  const pref = mode || 'dark';
+  const resolved = resolveMode(pref);
+  document.documentElement.dataset.theme = resolved;
+  document.querySelectorAll('#seg-mode button').forEach((b) => {
+    b.classList.toggle('on', (b.dataset.mode || 'dark') === pref);
+  });
+  // 让系统标题栏按钮与窗口底色一起跟随，避免首帧闪一下
+  if (api.setWindowTheme) api.setWindowTheme(resolved);
+}
 
 function hexToRgb(hex) {
   const h = String(hex || '').replace('#', '');
@@ -111,14 +130,59 @@ function hexToRgb(hex) {
   };
 }
 
+function hexToHsl(hex) {
+  let { r, g, b } = hexToRgb(hex);
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0, s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return { h, s, l };
+}
+
+function hslToHex(h, s, l) {
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  let r, g, b;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  const to = (v) => Math.round(Math.max(0, Math.min(1, v)) * 255);
+  return { r: to(r), g: to(g), b: to(b) };
+}
+
 function applyTheme(color) {
   const hex = color && color !== 'default' ? color : DEFAULT_PRIMARY;
-  const { r, g, b } = hexToRgb(hex);
+  const light = document.documentElement.dataset.theme === 'light';
+  let { r, g, b } = hexToRgb(hex);
+  if (light) {
+    // 浅色底上直接铺亮色会糊，只降明度、保留色相，别压成脏棕色
+    const { h, s, l } = hexToHsl(hex);
+    ({ r, g, b } = hslToHex(h, Math.min(1, s * 0.92), Math.min(l, 0.4)));
+  }
   const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   const root = document.documentElement.style;
-  root.setProperty('--primary', hex);
+  root.setProperty('--primary', `rgb(${r}, ${g}, ${b})`);
   root.setProperty('--on-primary', lum > 0.55 ? '#05110a' : '#ffffff');
-  root.setProperty('--primary-container', `rgba(${r}, ${g}, ${b}, 0.16)`);
+  root.setProperty('--primary-container', `rgba(${r}, ${g}, ${b}, ${light ? 0.18 : 0.16})`);
 }
 
 function applyFont(kind) {
@@ -193,6 +257,17 @@ document.querySelectorAll('#seg-font button').forEach((b) => {
     settings = await api.saveSettings({ fontFamily: b.dataset.font });
     applySettings();
   });
+});
+
+document.querySelectorAll('#seg-mode button').forEach((b) => {
+  b.addEventListener('click', async () => {
+    settings = await api.saveSettings({ themeMode: b.dataset.mode });
+    applySettings();
+  });
+});
+
+MEDIA_LIGHT.addEventListener('change', () => {
+  if ((settings.themeMode || 'dark') === 'system') applySettings();
 });
 
 $('#btn-replay').addEventListener('click', () => {

@@ -1,12 +1,13 @@
 {
   "name": "douyin-dl",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "抖音单条视频下载器（Kazumi 风格）",
   "main": "src/main/main.js",
   "type": "commonjs",
   "scripts": {
     "start": "electron .",
-    "dist:msi": "electron-builder --win msi"
+    "dist:msi": "electron-builder --win msi",
+    "dist:win": "electron-builder --win nsis zip"
   },
   "author": "LCX",
   "license": "MIT",
@@ -28,7 +29,13 @@
     "win": {
       "target": [
         {
-          "target": "msi",
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "x64"
           ]
@@ -41,6 +48,13 @@
       "perMachine": true,
       "runAfterFinish": true,
       "createDesktopShortcut": true
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "artifactName": "DouyinDownloader-Setup-${version}.exe"
     }
   }
 }
